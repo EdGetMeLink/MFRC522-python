@@ -311,10 +311,11 @@ class MFRC522:
     if not(status == self.MI_OK):
        print "Error while reading!"
    
-    print "Got data size: "+str(backLen)
-    i = 0
+    #print "Got data size: "+str(backLen)
+    #i = 0
     if len(backData) == 16:
-       print "Sector "+str(blockAddr)+" "+str(backData)
+	   return backData	
+       #print "Sector "+str(blockAddr)+" "+str(backData)
  
   def MFRC522_Write(self, blockAddr, writeData):
     buff = []
@@ -341,7 +342,7 @@ class MFRC522:
           print "Error while writing"
        if status == self.MI_OK:
           print "Data writen"
- 
+          
  
   def MFRC522_Init(self):
     GPIO.output(self.NRSTPD, 1)
@@ -362,32 +363,104 @@ continue_reading = True
 # Capture SIGINT
 def end_read(signal,frame):
   global continue_reading
-  print "Ctrl+C captured, ending read."
+  #print "Ctrl+C captured, ending read."
   continue_reading = False
  
 signal.signal(signal.SIGINT, end_read)
- 
-MIFAREReader = MFRC522()
- 
-while continue_reading:
-  (status,TagType) = MIFAREReader.MFRC522_Request(MIFAREReader.PICC_REQIDL)
- 
-  if status == MIFAREReader.MI_OK:
-    print "Card detected"
- 
-  (status,backData) = MIFAREReader.MFRC522_Anticoll()
-  if status == MIFAREReader.MI_OK:
-    print "Card read UID: "+str(backData[0])+","+str(backData[1])+","+str(backData[2])+","+str(backData[3])+","+str(backData[4])
-    MIFAREReader.MFRC522_SelectTag(backData)
-    keyA = [0xFF,0xFF,0xFF,0xFF,0xFF,0xFF]
- 
- 
-    MIFAREReader.MFRC522_Auth(0x60,0,keyA,backData)
-    MIFAREReader.MFRC522_Read(0)
-    i = 1
-    while i < 64:
-       MIFAREReader.MFRC522_Auth(0x60,i,keyA,backData)
-       MIFAREReader.MFRC522_Read(i)
-       i = i + 1
- 
+
+def CardDump():
+	MIFAREReader = MFRC522()
+	while continue_reading:
+	  (status,TagType) = MIFAREReader.MFRC522_Request(MIFAREReader.PICC_REQIDL)
+	 
+	  if status == MIFAREReader.MI_OK:
+		print "Card detected"
+	 
+	  (status,backData) = MIFAREReader.MFRC522_Anticoll()
+	  if status == MIFAREReader.MI_OK:
+		print "Card read UID: "+str(backData[0])+","+str(backData[1])+","+str(backData[2])+","+str(backData[3])+","+str(backData[4])
+		MIFAREReader.MFRC522_SelectTag(backData)
+		keyA = [0xFF,0xFF,0xFF,0xFF,0xFF,0xFF]
+
+		i = 0
+		sector = 0
+		while i < 64:
+		   if sector <= i / 4:
+			  print "Sector: %s\n" % sector,
+			  sector += 1
+		   #block = i % 4
+		   MIFAREReader.MFRC522_Auth(0x60,i,keyA,backData)
+		   Data_text = ""
+		   print "Block: %s\t" % i, 
+		   data = MIFAREReader.MFRC522_Read(i)
+		   if data:
+			   for v in data:
+				  print '%02x' % v,
+				  Data_text = Data_text + chr(v)
+			   print "\t" + Data_text
+			   i = i + 1
+		#end_read(0,0)
+		main()
+		
+def CardWrite(InData, keyA, Block):
+	MIFAREReader = MFRC522()
+	while continue_reading:
+	  (status,TagType) = MIFAREReader.MFRC522_Request(MIFAREReader.PICC_REQIDL)
+	 
+	  if status == MIFAREReader.MI_OK:
+		print "Card detected"
+	 
+	  (status,backData) = MIFAREReader.MFRC522_Anticoll()
+	  if status == MIFAREReader.MI_OK:
+		print "Card read UID: "+str(backData[0])+","+str(backData[1])+","+str(backData[2])+","+str(backData[3])+","+str(backData[4])
+		MIFAREReader.MFRC522_SelectTag(backData)
+		#keyA = [0xFF,0xFF,0xFF,0xFF,0xFF,0xFF]
+		MIFAREReader.MFRC522_Auth(0x60,Block,keyA,backData)
+		MIFAREReader.MFRC522_Write(Block,InData)
+		#end_read(0,0)
+		main()
+		
+def MenuRawInput():
+	temp = []
+	Block = input("\nPlease input block number (0-63): ")
+	Password = raw_input("Please input sector password (6 hex bytes separated with spaces): ")
+	Password = Password.split()
+	for v in Password:
+		temp.append(int(v,16))
+	Password = temp
+
+	if Block == 0:
+		print "Block 0 contains the manufacturer data, and is read-only.\n\n"
+	elif Block % 4 == 3:
+		print "The last block in sector is called the Sector trailer, and it contains the two secret keys (Key A and Key B), as well as the access conditions for the four blocks." 
+	else:
+		InputData = raw_input("Please input 16 bytes(hex) of data separated with spaces (ex. ff ff ff...)\n>>>  ")
+		temp = []
+		if len(InputData) == 47:
+			InputData = InputData.split()
+			if len(InputData) == 16:
+				for v in InputData:
+					temp.append(int(v, 16))
+				InputData = temp
+		else:
+			InputData = []
+			print "There is something wronge with the input, please try again!\n\n"
+		CardWrite(InputData, Password, Block)
+
+
+def main():
+	print "\nPlease select one of the options:"
+	print "1. Dump raw data."
+	print "2. Write raw data."
+	print "3. Exit."
+	Option = input(">>> ")
+	if Option == 1:
+		CardDump()
+	elif Option == 2:
+		MenuRawInput()
+	elif Option == 3:
+		exit()
+
+if __name__ == '__main__': main()
+
 
