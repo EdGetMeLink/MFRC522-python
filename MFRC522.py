@@ -339,9 +339,9 @@ class MFRC522:
        buf.append(crc[1])
        (status, backData, backLen) = self.MFRC522_ToCard(self.PCD_TRANSCEIVE,buf)
        if not(status == self.MI_OK) or not(backLen == 4) or not((backData[0] & 0x0F) == 0x0A):
-          print "Error while writing"
+          return "Error while writing"
        if status == self.MI_OK:
-          print "Data writen"
+          return "Data writen"
           
  
   def MFRC522_Init(self):
@@ -368,7 +368,7 @@ def end_read(signal,frame):
  
 signal.signal(signal.SIGINT, end_read)
 
-def CardDump():
+def CardDump(keyA):
 	MIFAREReader = MFRC522()
 	while continue_reading:
 	  (status,TagType) = MIFAREReader.MFRC522_Request(MIFAREReader.PICC_REQIDL)
@@ -380,8 +380,8 @@ def CardDump():
 	  if status == MIFAREReader.MI_OK:
 		print "Card read UID: "+str(backData[0])+","+str(backData[1])+","+str(backData[2])+","+str(backData[3])+","+str(backData[4])
 		MIFAREReader.MFRC522_SelectTag(backData)
-		keyA = [0xFF,0xFF,0xFF,0xFF,0xFF,0xFF]
-
+		#keyA = [0xFF,0xFF,0xFF,0xFF,0xFF,0xFF]
+		
 		i = 0
 		sector = 0
 		while i < 64:
@@ -414,26 +414,80 @@ def CardWrite(InData, keyA, Block):
 	  if status == MIFAREReader.MI_OK:
 		print "Card read UID: "+str(backData[0])+","+str(backData[1])+","+str(backData[2])+","+str(backData[3])+","+str(backData[4])
 		MIFAREReader.MFRC522_SelectTag(backData)
-		#keyA = [0xFF,0xFF,0xFF,0xFF,0xFF,0xFF]
 		MIFAREReader.MFRC522_Auth(0x60,Block,keyA,backData)
-		MIFAREReader.MFRC522_Write(Block,InData)
-		#end_read(0,0)
+		print MIFAREReader.MFRC522_Write(Block,InData)
+		main()
+		
+
+def CardWipe(keyA):
+	MIFAREReader = MFRC522()
+	while continue_reading:
+	  (status,TagType) = MIFAREReader.MFRC522_Request(MIFAREReader.PICC_REQIDL)
+	 
+	  if status == MIFAREReader.MI_OK:
+		print "Card detected"
+	 
+	  (status,backData) = MIFAREReader.MFRC522_Anticoll()
+	  if status == MIFAREReader.MI_OK:
+		print "Card read UID: "+str(backData[0])+","+str(backData[1])+","+str(backData[2])+","+str(backData[3])+","+str(backData[4])
+		MIFAREReader.MFRC522_SelectTag(backData)
+		for Block in range(1,64):
+			if Block % 4 != 3:
+				MIFAREReader.MFRC522_Auth(0x60,Block,keyA,backData)
+				print "Writing zeroes in the Block %s. " % Block,
+				print MIFAREReader.MFRC522_Write(Block,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])
+		main()		
+		
+def ChangeKeyA(CurrentKeyA, NewKeyA):
+	MIFAREReader = MFRC522()
+	while continue_reading:
+	  (status,TagType) = MIFAREReader.MFRC522_Request(MIFAREReader.PICC_REQIDL)
+	 
+	  if status == MIFAREReader.MI_OK:
+		print "Card detected"
+	 
+	  (status,backData) = MIFAREReader.MFRC522_Anticoll()
+	  if status == MIFAREReader.MI_OK:
+		print "Card read UID: "+str(backData[0])+","+str(backData[1])+","+str(backData[2])+","+str(backData[3])+","+str(backData[4])
+		MIFAREReader.MFRC522_SelectTag(backData)
+		for Block in range(1,64):
+			if Block % 4 == 3:
+				MIFAREReader.MFRC522_Auth(0x60,Block,CurrentKeyA,backData)
+				Data = MIFAREReader.MFRC522_Read(Block)
+				for i in range(6):
+					Data[i] = NewKeyA[i]
+				print "Writing new Key A in the Block %s. " % Block,
+				print MIFAREReader.MFRC522_Write(Block,Data)
+		main()		
+			
+	
+	
+	
+		
+def GetKeyA():
+	temp = []
+	KeyA = raw_input("Please type Key A (6 hex bytes separated with spaces) or press enter for default: ")
+	if KeyA == "":
+		KeyA = "ff ff ff ff ff ff" 
+	KeyA = KeyA.split()
+	if len(KeyA) == 6:
+		for v in KeyA:
+			temp.append(int(v,16))
+		return temp
+	else: 
+		print "\nThe Key A is not 6 bytes long! Please try again!"
 		main()
 		
 def MenuRawInput():
-	temp = []
 	Block = input("\nPlease input block number (0-63): ")
-	Password = raw_input("Please input sector password (6 hex bytes separated with spaces): ")
-	Password = Password.split()
-	for v in Password:
-		temp.append(int(v,16))
-	Password = temp
-
 	if Block == 0:
 		print "Block 0 contains the manufacturer data, and is read-only.\n\n"
+		main()	
 	elif Block % 4 == 3:
-		print "The last block in sector is called the Sector trailer, and it contains the two secret keys (Key A and Key B), as well as the access conditions for the four blocks." 
+		print "The last block in sector is called the Sector trailer, and it contains the two secret keys (Key A and Key B), as well as the access conditions for the four blocks. You should not write custom data in this block!" 
+		main()
 	else:
+		KeyA = GetKeyA()
 		InputData = raw_input("Please input 16 bytes(hex) of data separated with spaces (ex. ff ff ff...)\n>>>  ")
 		temp = []
 		if len(InputData) == 47:
@@ -444,21 +498,53 @@ def MenuRawInput():
 				InputData = temp
 		else:
 			InputData = []
-			print "There is something wronge with the input, please try again!\n\n"
-		CardWrite(InputData, Password, Block)
+			print "There is something wrong with the input data , please try again!\n\n"
+		CardWrite(InputData, KeyA, Block)
+		
 
+def MenuCardWipe():
+	if raw_input("\nAll data on the card will be erased!!! Would you like to continue (type YES): ") == "YES":
+		KeyA = GetKeyA()
+		CardWipe(KeyA)
+	else:
+		main()
+		
+
+def MenuCardDump():
+	KeyA = GetKeyA()
+	CardDump(KeyA)
+	
+
+def MenuChangeKeyA():
+	print "Please type current Key A."
+	OldKeyA = GetKeyA()
+	print "Please type new Key A."
+	NewKeyA1 = GetKeyA()
+	print "Please type again new Key A."
+	NewKeyA2 = GetKeyA()
+	if NewKeyA1 == NewKeyA2:
+		ChangeKeyA(OldKeyA, NewKeyA1)			
+	else: 
+		print "\nThe keys do not match! Please try again!"
+		main()
 
 def main():
-	print "\nPlease select one of the options:"
+	print "\n\nPlease select one of the options:"
 	print "1. Dump raw data."
 	print "2. Write raw data."
-	print "3. Exit."
+	print "3. Change Key A."
+	print "4. Wipe card."
+	print "5. Exit."
 	Option = input(">>> ")
 	if Option == 1:
-		CardDump()
+		MenuCardDump()
 	elif Option == 2:
 		MenuRawInput()
 	elif Option == 3:
+		MenuChangeKeyA()
+	elif Option == 4:
+		MenuCardWipe()
+	elif Option == 5:
 		exit()
 
 if __name__ == '__main__': main()
